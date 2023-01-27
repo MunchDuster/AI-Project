@@ -2,8 +2,8 @@ using UnityEngine;
 
 public class NeuralNetwork
 {
-	private const float weightInitRange = 1.5f;
-	private const float biasInitRange = 0.5f;
+	private const float weightInitRange = 2f;
+	private const float biasInitRange = 1f;
 
 	public static int created;
 
@@ -17,7 +17,7 @@ public class NeuralNetwork
 
 	private float Sigmoid(float num)
 	{
-		return (2 / 1 + (float)System.Math.Pow(2.71828f, -2 * num)) - 1;
+		return (2 / (1 + (float)System.Math.Pow(2.71828f, -2 * num))) - 1;
 	}
 
 	private float MutateValue(float value)
@@ -26,11 +26,11 @@ public class NeuralNetwork
 
 		if (ran == 0)
 		{
-			value *= Random.Range(0.5f, 1.5f);
+			value *= Random.Range(0.5f, 2f);
 		}
 		else if (ran == 1)
 		{
-			value += Random.Range(-0.5f, 0.5f);
+			value += Random.Range(-1f, 1f);
 		}
 		else
 		{
@@ -192,12 +192,15 @@ public class NeuralNetwork
 	public int MutateNet(float chanceWeights, float chanceBiases)
 	{
 		int mutations = 0;
+
 		for (int row = 1; row < neurons.Length; row++)
 		{
 			for (int col = 0; col < neurons[row].Length; col++)
 			{
 				for (int lastCol = 0; lastCol < neurons[row - 1].Length; lastCol++)
 				{
+					mutations++;
+
 					//Mutate weights
 					float rand = Random.Range(0f, 1f);
 
@@ -210,10 +213,10 @@ public class NeuralNetwork
 
 				//Mutate biases
 				float ran = Random.value;
-
 				if (ran < chanceBiases)
 				{
 					biases[row][col] = MutateValue(biases[row][col]);
+					mutations++;
 				}
 			}
 		}

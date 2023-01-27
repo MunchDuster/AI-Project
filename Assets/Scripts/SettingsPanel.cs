@@ -6,7 +6,7 @@ using TMPro;
 public class SettingsPanel : MonoBehaviour
 {
 	public NNTest tester;
-	public PlayerUI ui;
+	//public PlayerUI ui;
 	public TMP_InputField batchSizeInput;
 	public TMP_InputField batchesInput;
 	public TMP_InputField batchTimeInput;
@@ -22,7 +22,7 @@ public class SettingsPanel : MonoBehaviour
 	}
 	public void UpdateBatchTime()
 	{
-		SetPositiveFloat("batch time", batchTimeInput.text, ref tester.batchGap);
+		SetPositiveFloat("batch time", batchTimeInput.text, ref tester.batchRunTime);
 	}
 	public void UpdateMutationChance()
 	{
@@ -39,7 +39,7 @@ public class SettingsPanel : MonoBehaviour
 
 			if (intInput < 0)
 			{
-				ui.Error("Invalid " + name);
+				//ui.Error("Invalid " + name);
 			}
 			else
 			{
@@ -48,7 +48,7 @@ public class SettingsPanel : MonoBehaviour
 		}
 		catch
 		{
-			ui.Error(name + " input isnt an integer");
+			//ui.Error(name + " input isnt an integer");
 		}
 	}
 	private void SetPositiveFloat(string name, string input, ref float value)
@@ -59,7 +59,7 @@ public class SettingsPanel : MonoBehaviour
 
 			if (intInput < 0)
 			{
-				ui.Error("Invalid " + name);
+				//ui.Error("Invalid " + name);
 			}
 			else
 			{
@@ -68,7 +68,7 @@ public class SettingsPanel : MonoBehaviour
 		}
 		catch
 		{
-			ui.Error(name + " input isnt a number");
+			//ui.Error(name + " input isnt a number");
 		}
 	}
 }

@@ -1,47 +1,57 @@
 using UnityEngine;
+using UnityEngine.Events;
 using System.Collections;
 using System.Collections.Generic;
 
 public class NNTest : MonoBehaviour
 {
+	public static NNTest instance;
+
+	[Header("References")]
 	public Transform spawnPoint;
 	public SavePanel savePanel;
+	public GameObject walkerPrefab;
 
 	[Space(10)]
+	[Header("Debug curves")]
 	public AnimationCurve bestCurve;
 	public AnimationCurve similarityCurve;
 
+	//NN layout
 	public int[] innerLayers = new int[] { 2, 5, 1 };
 
-	public delegate void OnIntEvent(int num);
-	public event OnIntEvent OnGenerationCompleted;
-	public event OnIntEvent OnBatchCompleted;
-	public delegate void OnEvent();
-	public event OnEvent OnGenerationStarted;
-	public event OnEvent OnStartedRunning;
+	//Unity Events
+	public UnityEvent<int> OnGenerationStart;
+	public UnityEvent OnGenerationFinish;
+	[Space(10)]
+	public UnityEvent<int> OnBatchStart;
+	public UnityEvent OnBatchFinish;
+	[Space(10)]
+	public UnityEvent<float> OnBatchProgress;
+	public UnityEvent OnStarted;
 
+	[Header("Settings")]
 	[Space(10)]
 	[Tooltip("Each generation runs in batches.")]
 	public int batchSize = 300;
 	[Tooltip("Total generation size = batchSize * batches")]
 	public int batches = 5;
 	[Tooltip("Time between each batch")]
-	public float batchGap = 0.25f;
+	public float batchRunTime = 0.25f;
 	[Tooltip("Number of best bots to be cloned from")]
 	public int noOfBests;
+	public bool autoStart = false;
 
 	[Space(10)]
 	[Tooltip("Probability from 0 to 1")]
 	public float mutateWieghtsChance = 0.001f;
 	public float mutateBiasesChance = 0.001f;
 
-	[Space(10)]
-	public GameObject walkerPrefab;
-
+	//NN arrays
 	private NeuralNetwork[] networks;
-	private NeuralNetwork[] batchBests;
 	private NeuralNetwork[] bests;
 
+	//Walker robots
 	private Walker[] walkers;
 
 	private int generation = 0;
@@ -77,11 +87,10 @@ public class NNTest : MonoBehaviour
 
 	public void StartRunning()
 	{
-		OnStartedRunning();
+		OnStarted.Invoke();
 
-		networks = new NeuralNetwork[batchSize];
+		networks = new NeuralNetwork[batchSize * batches];
 		bests = new NeuralNetwork[noOfBests];
-		batchBests = new NeuralNetwork[noOfBests];
 
 		Walker.notLoseWalkers = new List<Walker>();
 		Walker.walkers = new List<Walker>();
@@ -89,6 +98,18 @@ public class NNTest : MonoBehaviour
 		Walker.onWalkerLose += CheckAnyLeft;
 
 		StartCoroutine(Simulate());
+	}
+
+	public float? GetBatchBestScore()
+	{
+		return lastBatchBestScore;
+	}
+	float? lastBatchBestScore;
+
+	void Start()
+	{
+		if (autoStart) StartRunning();
+		instance = this;
 	}
 
 	private Coroutine batchGapCoroutine;
@@ -102,57 +123,56 @@ public class NNTest : MonoBehaviour
 			//magic words for a magic man
 			Debug.Log("Stopping!");
 			StopCoroutine(batchGapCoroutine);
-
 		}
 	}
 
 	private IEnumerator Simulate()
 	{
 		SpawnWalkers();
+		InitNetworks();
 		InitBests();
-		OnGenerationStarted();
-		//Run first generation outside of loop (no best to use yet)
-		for (batch = 0; batch < batches; batch++)
-		{
-			InitBatch();
-			StartScoringBatch();
-			yield return batchGapCoroutine = StartCoroutine(batchGapWait());
-			StopScoringBatch();
-			RankBestOfBatch();
-			OnBatchCompleted(batch);
-		}
-		RankBestOfGeneraton();
-		OnGenerationCompleted(generation);
+
+		yield return StartCoroutine(RunGeneration());
 
 		while (true)
 		{
-			generation++;
-
-			for (batch = 0; batch < batches; batch++)
-			{
-				PrepareBatch();
-				StartScoringBatch();
-				yield return batchGapCoroutine = StartCoroutine(batchGapWait());
-				StopScoringBatch();
-				RankBestOfBatch();
-				OnBatchCompleted(batch);
-
-			}
-			RankBestOfGeneraton();
-			OnGenerationCompleted(generation);
-
+			CreateNextGeneration();
+			yield return StartCoroutine(RunGeneration());
 		}
 	}
-	private IEnumerator batchGapWait()
+
+	IEnumerator RunGeneration()
 	{
-		yield return new WaitForSeconds(batchGap);
+		OnGenerationStart.Invoke(generation);
+		for (batch = 0; batch < batches; batch++)
+		{
+			OnBatchStart.Invoke(batch);
+			StartScoringBatch();
+			yield return StartCoroutine(RunBatch());
+			StopScoringBatch();
+			RankBestOfBatch();
+			OnBatchFinish.Invoke();
+		}
+		OnGenerationFinish.Invoke();
+		generation++;
+	}
+
+	IEnumerator RunBatch()
+	{
+		float batchRunTimeSoFar = 0;
+		while (batchRunTimeSoFar < batchRunTime)
+		{
+			batchRunTimeSoFar += Time.deltaTime;
+			OnBatchProgress.Invoke(batchRunTimeSoFar);
+			yield return null;
+		}
 	}
 
 	private void SpawnWalkers()
 	{
-		walkers = new Walker[networks.Length];
+		walkers = new Walker[batchSize - 1];
 
-		for (int i = 0; i < networks.Length; i++)
+		for (int i = 0; i < batchSize - 1; i++)
 		{
 			GameObject newWalkerGameObject = Instantiate(walkerPrefab, spawnPoint.position, spawnPoint.rotation);
 			Walker newWalker = newWalkerGameObject.GetComponent<Walker>();
@@ -162,9 +182,25 @@ public class NNTest : MonoBehaviour
 		layers = new int[innerLayers.Length + 2];
 		layers[0] = walkers[0].GetRequiredInputs();
 		layers[layers.Length - 1] = walkers[0].GetRequiredOutputs();
+
+		for (int i = 0; i < innerLayers.Length; i++)
+		{
+			layers[i + 1] = innerLayers[i];
+		}
+
+
+#if UNITY_EDITOR
+		string str = "Layers: [";
+		for (int i = 0; i < layers.Length; i++)
+		{
+			str += layers[i] + ",";
+		}
+		str += "]";
+		Debug.Log(str);
+#endif
 	}
 
-	private void InitBatch()
+	private void InitNetworks()
 	{
 		for (int i = 0; i < networks.Length; i++)
 		{
@@ -176,85 +212,71 @@ public class NNTest : MonoBehaviour
 		//Init the bests and batchBests so that there are no null values
 		for (int b = 0; b < noOfBests; b++)
 		{
-			bests[b] = new NeuralNetwork(layers);
-			bests[b].fitness = float.MinValue;
-
-			batchBests[b] = new NeuralNetwork(layers);
-			batchBests[b].fitness = float.MinValue;
+			bests[b] = networks[b];
 		}
 
 		//If there is a loaded best, use it
-		NeuralNetwork loadednetwork = savePanel.bestLoadedAndChosen;
+		NeuralNetwork loadednetwork = savePanel == null ? null : savePanel.bestLoadedAndChosen;
 		if (loadednetwork != null) bests[0] = loadednetwork;
 	}
-	private void PrepareBatch()
+
+	[HideInInspector] public int[] mutations;
+	private void CreateNextGeneration()
 	{
+		mutations = new int[networks.Length];
 		for (int i = 0; i < networks.Length; i++)
 		{
 			//Choose any of best to be parent
 			NeuralNetwork best = bests[Random.Range(0, noOfBests)];
-
 			networks[i].fitness = 0;
 			networks[i].CopySettings(best);
-			networks[i].MutateNet(mutateWieghtsChance, mutateBiasesChance);
+			mutations[i] = networks[i].MutateNet(mutateWieghtsChance, mutateBiasesChance);
 		}
 	}
 
 	private void StartScoringBatch()
 	{
-		for (int i = 0; i < networks.Length; i++)
+		for (int batchIndex = 0; batchIndex < walkers.Length; batchIndex++)
 		{
-			walkers[i].network = networks[i];
-			walkers[i].StartScoring();
+			walkers[batchIndex].network = networks[GetNetworksIndex(batchIndex)];
+			walkers[batchIndex].StartScoring();
 		}
 	}
 	private void StopScoringBatch()
 	{
-		for (int i = 0; i < networks.Length; i++)
+		for (int batchIndex = 0; batchIndex < walkers.Length; batchIndex++)
 		{
-			walkers[i].StopScoring();
-			walkers[i].Reset();
+			walkers[batchIndex].StopScoring();
+			walkers[batchIndex].Reset();
 		}
 	}
 
+	int GetNetworksIndex(int batchIndex)
+	{
+		return batchIndex + batch * batchSize;
+	}
+
+	//TODO: BETTER SORTING ALGORTHYM
 	private void RankBestOfBatch()
 	{
-		for (int i = 0; i < networks.Length; i++)
+		lastBatchBestScore = float.MinValue;
+		for (int batchIndex = 0; batchIndex < batchSize - 1; batchIndex++)
 		{
-			for (int b = 0; b < noOfBests; b++)
-			{
-				if (networks[i].fitness > batchBests[b].fitness)
-				{
-					NeuralNetwork newNet = new NeuralNetwork(networks[i], true);
-					InsertValue<NeuralNetwork>(ref batchBests, newNet, b);
-				}
-			}
+			if (networks[GetNetworksIndex(batchIndex)].fitness > lastBatchBestScore) lastBatchBestScore = networks[GetNetworksIndex(batchIndex)].fitness;
 		}
 
-		Debug.Log("Batch bests:");
-		for (int g = 0; g < noOfBests; g++)
+		for (int batchIndex = 0; batchIndex < noOfBests; batchIndex++)
 		{
-			Debug.Log("Batch bests[" + g + "]: " + batchBests[g].fitness);
-		}
-	}
-	private void RankBestOfGeneraton()
-	{
-		for (int b = 0; b < noOfBests; b++)
-		{
-			for (int g = 0; g < noOfBests; g++)
+			bool replaced = false;
+			for (int bestIndex = 0; bestIndex < noOfBests && !replaced; bestIndex++)
 			{
-				if (batchBests[b].fitness > bests[g].fitness)
+				if (networks[GetNetworksIndex(batchIndex)].fitness > bests[bestIndex].fitness)
 				{
-					NeuralNetwork newNet = new NeuralNetwork(batchBests[b], true);
-					InsertValue<NeuralNetwork>(ref bests, newNet, g);
+					NeuralNetwork newNet = new NeuralNetwork(networks[GetNetworksIndex(batchIndex)], true);
+					InsertValue<NeuralNetwork>(ref bests, newNet, bestIndex);
+					replaced = true;
 				}
 			}
-		}
-
-		Debug.Log("Generations bests:");
-		for (int g = 0; g < noOfBests; g++)
-		{
-			Debug.Log("Bests[" + g + "]: " + bests[g].fitness);
 		}
 	}
 

@@ -26,7 +26,7 @@ public class SavePanel : MonoBehaviour
 
 	public void SetChosen(SaveFileUI saveFile)
 	{
-		PlayerUI.ui.Message(saveFile.data.name + " chosen.");
+		ErrorUI.ui.Message(saveFile.data.name + " chosen.");
 
 		NeuralNetwork network = new NeuralNetwork(saveFile.data.layers);
 
@@ -42,7 +42,7 @@ public class SavePanel : MonoBehaviour
 
 		if (network == null)
 		{
-			PlayerUI.ui.Error("No network to save!");
+			ErrorUI.ui.Error("No network to save!");
 			return;
 		}
 
@@ -58,13 +58,13 @@ public class SavePanel : MonoBehaviour
 		if (success)
 		{
 			Debug.Log("Save successful");
-			PlayerUI.ui.Message("Save successful.");
+			ErrorUI.ui.Message("Save successful.");
 
 			loadedData.Add(data);
 		}
 		else
 		{
-			PlayerUI.ui.Error("Save failed.");
+			ErrorUI.ui.Error("Save failed.");
 			Debug.Log("Save failed");
 		}
 
@@ -84,13 +84,13 @@ public class SavePanel : MonoBehaviour
 
 			if (data != null)
 			{
-				PlayerUI.ui.Message("Load Successful.");
+				ErrorUI.ui.Message("Load Successful.");
 				Debug.Log("Load successful");
 				loadedData.Add(data);
 			}
 			else
 			{
-				PlayerUI.ui.Error("Load failed.");
+				ErrorUI.ui.Error("Load failed.");
 				Debug.Log("Load failed");
 			}
 		}

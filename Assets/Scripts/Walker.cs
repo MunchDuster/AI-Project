@@ -16,35 +16,29 @@ public class Walker : MonoBehaviour
 
 	public float maxVelocity = 100;
 
-	public Rigidbody head;
-	public Rigidbody[] limbs;
 	public HingeJoint[] joints;
-
-	public bool debug;
 
 	[Space(10)]
 	public float touchingGroundPunishment = 4;
-	public float movingForwardReward = 2;
 	public float positionReward = 1;
 
 	private bool scoring = true;
 	private Rigidbody[] rigidbodies;
 	private StartPoint[] startPoints;
 
-	private float totalVelocityScore = 0;
-	private float totalTouchingScore = 0;
-
 	private struct StartPoint
 	{
 		public Transform transform;
 		public Vector3 position;
 		public Quaternion rotation;
+		public Rigidbody rigidBody;
 
-		public StartPoint(Transform transform)
+		public StartPoint(Transform transform, Rigidbody rigidBody)
 		{
 			this.transform = transform;
 			this.position = transform.position;
 			this.rotation = transform.rotation;
+			this.rigidBody = rigidBody;
 		}
 	}
 
@@ -52,21 +46,17 @@ public class Walker : MonoBehaviour
 	{
 		ResetTransforms();
 		lost = false;
-		totalVelocityScore = 0;
-		totalTouchingScore = 0;
 	}
 
 	public void StartScoring()
 	{
 		scoring = true;
 		notLoseWalkers.Add(this);
-		SetRigidbodiesKinematic(false);
 	}
 
 	public void StopScoring()
 	{
 		scoring = false;
-		SetRigidbodiesKinematic(true);
 	}
 
 	// Start is called before the first frame update
@@ -92,9 +82,9 @@ public class Walker : MonoBehaviour
 	private void RecordTransforms()
 	{
 		List<StartPoint> startPointsList = new List<StartPoint>();
-		foreach (Transform child in transform.GetComponentsInChildren<Transform>())
+		foreach (Rigidbody child in transform.GetComponentsInChildren<Rigidbody>())
 		{
-			StartPoint startPoint = new StartPoint(child);
+			StartPoint startPoint = new StartPoint(child.transform, child);
 			startPointsList.Add(startPoint);
 		}
 		startPoints = startPointsList.ToArray();
@@ -103,12 +93,18 @@ public class Walker : MonoBehaviour
 
 	public int GetRequiredInputs()
 	{
-		int extraInputs = 2 /*head Y & Z angles*/;
-		return limbs.Length * 2 + extraInputs;
+		int extraInputs = 3; //body rotation input
+		return joints.Length + extraInputs;
 	}
 	public int GetRequiredOutputs()
 	{
-		return joints.Length * 1;
+		return joints.Length;
+	}
+
+
+	float SimplifyRotation(float rotation)
+	{
+		return (rotation / 180) - 1f; //TUrns a 0 to 360 rotation into a 1 to -1 rotation
 	}
 
 	private void RunNetwork()
@@ -118,28 +114,39 @@ public class Walker : MonoBehaviour
 
 		//Get inputs
 		int i = 0;
-		for (int l = 0; l < limbs.Length; l++)
-		{
-			Rigidbody limb = limbs[l];
+		// for (int l = 0; l < limbs.Length; l++)
+		// {
+		// 	Rigidbody limb = limbs[l];
 
+		// 	float relativeVelocity = -limb.angularVelocity.x;
+		// 	inputs[i++] = relativeVelocity / 4f;
+		// 	float angle = SimplifyRotation(limb.transform.localEulerAngles.x);
+		// 	inputs[i++] = angle;
+		// }
 
-			float relativeVelocity = -limb.angularVelocity.x;
-			inputs[i++] = relativeVelocity;
-			float angle = limb.transform.localEulerAngles.x / 180f - 1f;
-			inputs[i++] = angle / 180f;
-		}
+		//Head angle inputs
+		float headXAngle = SimplifyRotation(body.eulerAngles.x);
+		inputs[i++] = headXAngle;
 
-		float headYAngle = head.transform.localEulerAngles.y / 180f - 1f;
+		float headYAngle = SimplifyRotation(body.localEulerAngles.y);
 		inputs[i++] = headYAngle;
 
-		float headZAngle = head.transform.localEulerAngles.z / 180f - 1f;
+		float headZAngle = SimplifyRotation(body.localEulerAngles.z);
 		inputs[i++] = headZAngle;
+
+		//Apply outputs
+		for (int l = 0; l < joints.Length; l++)
+		{
+			HingeJoint joint = joints[l];
+			inputs[i++] = joint.angle / 90f;
+		}
+
+
 
 		//Get outputs
 		float[] outputs = network.Propagate(inputs);
 
 		//Apply outputs
-		i = 0;
 		for (int l = 0; l < joints.Length; l++)
 		{
 			HingeJoint joint = joints[l];
@@ -155,36 +162,32 @@ public class Walker : MonoBehaviour
 		return output;
 	}
 
+	float touchingScore = 0;
+
 	private void Score()
 	{
-		float positionScore = body.position.z;
-		totalVelocityScore += head.velocity.z * Time.fixedDeltaTime;
+		float positionScore = body.position.z * positionReward;
+		float totalScoreThisFrame = positionScore - touchingScore;
 
-		network.fitness = positionScore * positionReward + totalVelocityScore * movingForwardReward - totalTouchingScore * touchingGroundPunishment;
+		network.fitness += totalScoreThisFrame * Time.fixedDeltaTime;
+		touchingScore = 0;
 	}
 
 	public void OnTouch()
 	{
-		totalTouchingScore += touchingGroundPunishment;
-
-		//lost = true;
-		//onWalkerLose();
+		touchingScore = touchingGroundPunishment;
+		lost = true;
+		onWalkerLose();
 	}
 
 	private void ResetTransforms()
 	{
 		foreach (StartPoint startPoint in startPoints)
 		{
+			startPoint.rigidBody.velocity = Vector3.zero;
+			startPoint.rigidBody.angularVelocity = Vector3.zero;
 			startPoint.transform.position = startPoint.position;
 			startPoint.transform.rotation = startPoint.rotation;
-		}
-	}
-
-	private void SetRigidbodiesKinematic(bool kinematic)
-	{
-		foreach (Rigidbody rb in rigidbodies)
-		{
-			rb.isKinematic = kinematic;
 		}
 	}
 }
